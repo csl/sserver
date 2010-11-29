@@ -12,6 +12,7 @@ int main()
 
     /* create socket */
     sockfd = socket(PF_INET, SOCK_STREAM, 0);
+
     /* initialize value in dest */
     bzero(&dest, sizeof(dest));
     dest.sin_family = PF_INET;

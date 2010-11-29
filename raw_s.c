@@ -5,7 +5,7 @@
 #include<netinet/tcp.h> //Provides declarations for tcp header
 #include<netinet/ip.h> //Provides declarations for ip header
 
-int s;
+int raw_socket;
  
 //Checksum calculation function
 unsigned short csum (unsigned short *buf, int nwords)
@@ -26,13 +26,13 @@ int send_syncpacket(char *argv[])
 	 char buffer[4096];
 	 int one = 1;
 	 const int *val = &one;
-	 s = socket (PF_INET, SOCK_RAW, IPPROTO_TCP);
+	 raw_socket = socket (PF_INET, SOCK_RAW, IPPROTO_TCP);
 
 	 struct iphdr *iph = (struct iphdr *) buffer;
 	 struct tcphdr *tcph = (struct tcphdr *) (buffer + sizeof (struct ip));
 	 struct sockaddr_in sin;
 
-	if(s < 0)
+	if(raw_socket < 0)
 	{
 		perror("socket() error");
 	        exit(-1);
@@ -76,7 +76,7 @@ int send_syncpacket(char *argv[])
 	 //Now the IP checksum
 	 iph->check = csum ((unsigned short *) buffer, iph->tot_len >> 1);
 	 
-	if (setsockopt (s, IPPROTO_IP, IP_HDRINCL, val, sizeof (one)) < 0)
+	if (setsockopt (raw_socket, IPPROTO_IP, IP_HDRINCL, val, sizeof (one)) < 0)
 	{
 	   printf ("Warning: Cannot set HDRINCL!n");
            return -1;
@@ -88,7 +88,7 @@ int send_syncpacket(char *argv[])
 	 while (1)
 	 {
 	  //Send the packet
-	  if (sendto (s, buffer, iph->tot_len, 0, (struct sockaddr *) &sin, sizeof (sin)) < 0)
+	  if (sendto (raw_socket, buffer, iph->tot_len, 0, (struct sockaddr *) &sin, sizeof (sin)) < 0)
 	  {
 			perror("sendto() error");
 			exit(-1);		
@@ -104,7 +104,6 @@ int toSTUNTServer(int req, char* ipaddr, int port)
 {
     int sockfd;
     struct sockaddr_in dest;
-    char buffer[128]="";
     char spoof_info[128]="";
 
     sprintf(spoof_info, "%d;%s;%d", req, ipaddr, port);
@@ -157,6 +156,6 @@ int main (int argc, char *argv[])
 
         //Send ASK packet
 
-	close(s);
+	close(raw_socket);
  	return 0;
 }

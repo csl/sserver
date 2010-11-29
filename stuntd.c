@@ -223,6 +223,7 @@ int main(int argc, char **argv)
     int i, pid, listenfd, socketfd;
     size_t length;
     char  vsip[16]="";
+
     static struct sockaddr_in cli_addr;
     static struct sockaddr_in serv_addr;
 
