@@ -8,11 +8,10 @@ int main()
     int sockfd;
     struct sockaddr_in dest;
     char buffer[128];
-    char resp[10]="0;192.168.123.222;90";
+    char resp[128]="0;192.168.123.222;90";
 
     /* create socket */
     sockfd = socket(PF_INET, SOCK_STREAM, 0);
-clientack
     /* initialize value in dest */
     bzero(&dest, sizeof(dest));
     dest.sin_family = PF_INET;
@@ -27,9 +26,11 @@ clientack
     recv(sockfd, buffer, sizeof(buffer), 0);
 
     printf("receive from server: %s\n", buffer);
-    send(sockfd,resp,sizeof(resp),0);
-    //Close connection
 */
+    send(sockfd,resp,sizeof(resp),0);
+
+    //Close connection
+
     close(sockfd);
 
     return 0;

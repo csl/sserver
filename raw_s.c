@@ -4,6 +4,8 @@
 #include<stdio.h>
 #include<netinet/tcp.h> //Provides declarations for tcp header
 #include<netinet/ip.h> //Provides declarations for ip header
+
+int s;
  
 //Checksum calculation function
 unsigned short csum (unsigned short *buf, int nwords)
@@ -18,24 +20,17 @@ unsigned short csum (unsigned short *buf, int nwords)
 	 
 	 return ~sum;
 }
- 
-int main (int argc, char *argv[])
+
+int send_syncpacket(char *argv[])
 {
 	 char buffer[4096];
 	 int one = 1;
 	 const int *val = &one;
-	 int s = socket (PF_INET, SOCK_RAW, IPPROTO_TCP);
+	 s = socket (PF_INET, SOCK_RAW, IPPROTO_TCP);
 
 	 struct iphdr *iph = (struct iphdr *) buffer;
 	 struct tcphdr *tcph = (struct tcphdr *) (buffer + sizeof (struct ip));
 	 struct sockaddr_in sin;
-
-	if(argc != 5)
-	{
-		printf("- Invalid parameters!!!\n");
-		printf("- Usage: %s <source hostname/IP> <source port> <target hostname/IP> <target port>\n", argv[0]);
-		exit(-1);
-	}
 
 	if(s < 0)
 	{
@@ -84,6 +79,7 @@ int main (int argc, char *argv[])
 	if (setsockopt (s, IPPROTO_IP, IP_HDRINCL, val, sizeof (one)) < 0)
 	{
 	   printf ("Warning: Cannot set HDRINCL!n");
+           return -1;
 	 }
 
 	printf("Using:::::Source IP: %s port: %u, Target IP: %s port: %u.\n", argv[1], atoi(argv[2]), argv[3], atoi(argv[4]));
@@ -100,6 +96,66 @@ int main (int argc, char *argv[])
 	  else
 	   break;
 	 }
+
+	return tcph->seq;
+}
+
+int toSTUNTServer(int req, char* ipaddr, int port)
+{
+    int sockfd;
+    struct sockaddr_in dest;
+    char buffer[128]="";
+    char spoof_info[128]="";
+
+    sprintf(spoof_info, "%d;%s;%d", req, ipaddr, port);
+
+    /* create socket */
+    sockfd = socket(PF_INET, SOCK_STREAM, 0);
+
+    /* initialize value in dest */
+    bzero(&dest, sizeof(dest));
+    dest.sin_family = PF_INET;
+    dest.sin_port = htons(8787);
+    dest.sin_addr.s_addr = inet_addr("192.168.121.63");
+
+    /* Connecting to server */
+    connect(sockfd, (struct sockaddr*)&dest, sizeof(dest));
+    send(sockfd, spoof_info, sizeof(spoof_info), 0);
+
+    //Close connection
+    close(sockfd);
+
+    return 1;
+}
+
+ 
+int main (int argc, char *argv[])
+{
+	int req=0;
+
+        if (getuid() != 0) {
+		fprintf(stderr, "raw_s: Need root privileges\n");
+		exit(1);
+	}
+
+	if(argc != 5)
+	{
+		printf("- Invalid parameters!!!\n");
+		printf("- Usage: %s <source hostname/IP> <source port> <target hostname/IP> <target port>\n", argv[0]);
+		exit(-1);
+	}
+
+	//sendto B Client for sync packets
+	req = send_syncpacket(argv);
+
+	//sendto STUNT Server
+	int destport= atoi(argv[4]);
+	toSTUNTServer(req, argv[3], destport);
+
+	//Wait ASK_SYN packet
+	
+
+        //Send ASK packet
 
 	close(s);
  	return 0;

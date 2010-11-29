@@ -23,6 +23,8 @@
 
 int sock_raw;
 const int one = 1;
+static char buffer[BUFSIZE+1]="";
+static char dstip[BUFSIZE+1]="";
 
 //Checksum calculation function
 unsigned short csum (unsigned short *buf, int nwords)
@@ -76,7 +78,7 @@ unsigned short  get_port_number(void *addr)
 }
  
 
-int send_asksynpkt (int seq, struct sockaddr_in* cli_addr)
+int send_asksynpkt (int seq, struct sockaddr_in* cli_addr, char *spoof_DestIP, int port)
 {
 	 char buffer[4096];
     	 char  vsip[16]="";
@@ -122,11 +124,11 @@ int send_asksynpkt (int seq, struct sockaddr_in* cli_addr)
 	 iph->ttl = 255;
 	 iph->protocol = 6;
 	 iph->check = 0;  //Set to 0 before calculating checksum
-	 iph->saddr = inet_addr ("192.168.123.123"); //Spoof the source ip address
+	 iph->saddr = inet_addr (spoof_DestIP); //Spoof the source ip address
 	 iph->daddr = sin.sin_addr.s_addr;
 	 
 	 //TCP Header
-	 tcph->source = htons (80);
+	 tcph->source = htons (port);
 	 tcph->dest = sin.sin_port;
 	 tcph->seq = seq;
 	 tcph->ack_seq = 0;
@@ -147,7 +149,7 @@ int send_asksynpkt (int seq, struct sockaddr_in* cli_addr)
 	   printf ("Warning: Cannot set HDRINCL!n");
 	 }
 
-	printf("Using:::::Source IP: %s port: %d, Target IP: %s port: %d.\n", "B cleint", 80, addr_to_string(cli_addr, vsip), get_port_number(cli_addr));
+	printf("Using:::::Source IP: %s port: %d, Target IP: %s port: %d.\n", spoof_DestIP, port, addr_to_string(cli_addr, vsip), get_port_number(cli_addr));
 
 	 //sendto packet	 
 	 while (1)
@@ -169,9 +171,9 @@ int send_asksynpkt (int seq, struct sockaddr_in* cli_addr)
 
 void handle_client(int fd, struct sockaddr_in* cli_addr)
 {
-    int j, file_fd, buflen, len;
+    int req = 0, port = 0;
     long i, ret;
-    static char buffer[BUFSIZE+1]="";
+    char *token = NULL;
 
     ret = read(fd,buffer,BUFSIZE);  
 
@@ -184,11 +186,33 @@ void handle_client(int fd, struct sockaddr_in* cli_addr)
     else
         buffer[0] = '\0';
 
-    printf("seq: %s\n", buffer);
+    //split information
+    i = 0;
+    token = strtok(buffer, ";"); /*There are two delimiters here*/ 
+    while (token != NULL)
+    {
+            printf("The token is:  %s\n", token);
 
-    exit(1);
-    printf("handle_client: ");
-    send_asksynpkt(0, cli_addr);
+	    switch (i)
+	    {
+		case 0:
+			req = atoi(token);
+			break;
+		case 1:
+			strcpy(dstip, token);
+			break;
+		case 2:
+			port = atoi(token);
+			break;
+	    }
+		
+	    i++;
+            token = strtok(NULL, ";");
+    }
+
+    printf("spoof_data: seq = %d, ip = %s, port = %d\n", req, dstip, port);
+
+    send_asksynpkt(req, cli_addr, dstip, port);
 
     exit(1);
 }

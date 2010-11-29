@@ -1,6 +1,6 @@
 all: clean
-    gcc -Wall stuntd.c -o stuntd
-    gcc -Wall -lpthread client.c -o client
+	gcc -Wall stuntd.c -o stuntd
+	gcc -Wall -lpthread raw_s.c -o raw_s
 
 clean:
-    rm -fr stuntd client
+	rm -fr stuntd raw_s
