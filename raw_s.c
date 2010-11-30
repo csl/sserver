@@ -6,6 +6,9 @@
 #include<netinet/ip.h> //Provides declarations for ip header
 #include<linux/if_ether.h>
 
+#define SERVER_IP "192.168.121.59"
+#define SERVER_PORT 8787
+
 int raw_socket;
 int read_rawsock;
 
@@ -63,7 +66,7 @@ unsigned short csum (unsigned short *buf, int nwords)
 int send_syncpacket(char *argv[])
 {
 	 char buffer[4096];
-	 int one = 1;
+	 int one = 1, ret = 0;
 	 const int *val = &one;
 	 raw_socket = socket (PF_INET, SOCK_RAW, IPPROTO_TCP);
 
@@ -127,7 +130,7 @@ int send_syncpacket(char *argv[])
 	 while (1)
 	 {
 	  //Send the packet
-	  if (sendto (raw_socket, buffer, iph->tot_len, 0, (struct sockaddr *) &sin, sizeof (sin)) < 0)
+	  if (ret = sendto (raw_socket, buffer, iph->tot_len, 0, (struct sockaddr *) &sin, sizeof (sin)) < 0)
 	  {
 			perror("sendto() error");
 			exit(-1);		
@@ -135,17 +138,18 @@ int send_syncpacket(char *argv[])
 	  else
 	   break;
 	 }
+	printf("sendto ret = %d\n", ret);
 
 	return tcph->seq;
 }
 
-int toSTUNTServer(int req, char* ipaddr, int port)
+int toSTUNTServer(int req, char* dipaddr, int dport, int sport)
 {
     int sockfd;
     struct sockaddr_in dest;
     char spoof_info[128]="";
 
-    sprintf(spoof_info, "%d;%s;%d", req, ipaddr, port);
+    sprintf(spoof_info, "%d;%s;%d;%d", req, dipaddr, dport, sport);
 
     /* create socket */
     sockfd = socket(PF_INET, SOCK_STREAM, 0);
@@ -153,8 +157,8 @@ int toSTUNTServer(int req, char* ipaddr, int port)
     /* initialize value in dest */
     bzero(&dest, sizeof(dest));
     dest.sin_family = PF_INET;
-    dest.sin_port = htons(8787);
-    dest.sin_addr.s_addr = inet_addr("192.168.121.63");
+    dest.sin_port = htons(SERVER_PORT);
+    dest.sin_addr.s_addr = inet_addr(SERVER_IP);
 
     /* Connecting to server */
     connect(sockfd, (struct sockaddr*)&dest, sizeof(dest));
@@ -169,11 +173,12 @@ int toSTUNTServer(int req, char* ipaddr, int port)
 void waitforasksync(int sport, int dport)
 {
    int n;
-   char buffer[2048];
+   char buffer[2048]="";
+   char sip[32]="", dip[32]="";
    unsigned char *iphead, *ethhead;
 
-   struct iphdr *iph = NULL;
-   struct tcphdr *tcph = NULL;
+   struct iphdr *iph;
+   struct tcphdr *tcph;
   
    if ( (read_rawsock=socket(PF_PACKET, SOCK_RAW,  htons(ETH_P_IP)))<0) 
    {
@@ -181,8 +186,9 @@ void waitforasksync(int sport, int dport)
      exit(1);
    }
 
-   while (1) {
-     n = recvfrom(read_rawsock ,buffer,2048,0,NULL,NULL);
+   while (1) 
+  {
+     n = recvfrom(read_rawsock ,buffer , 2048 , 0 , NULL, NULL);
 
      if (n<42) {
        perror("recvfrom():");
@@ -194,107 +200,118 @@ void waitforasksync(int sport, int dport)
      ethhead = buffer;
      iphead = buffer+14; /* Skip Ethernet header */
 
+     iph = (struct iphdr *) iphead;
+     tcph = (struct tcphdr *) (iphead + sizeof (struct ip));
+
      //filter not TCP
      if (*iphead!=0x45 && iph->protocol != 6)  continue;         
      
      printf("TCP souce port %d %d\n", ntohs(tcph->source), ntohs(tcph->dest));
      printf("TCP flag: asksyn %d %d\n", tcph->syn, tcph->ack);
 
-     iph = (struct iphdr *) iphead;
-     tcph = (struct tcphdr *) (iphead + sizeof (struct ip));
-
+     //ASKSYN flag = 1
      if (tcph->syn != 1 && tcph->ack != 1) continue;
-     if (ntohs(tcph->source) != sport && ntohs(tcph->dest) != dport) continue;
+
+     if (ntohs(tcph->source) != dport && ntohs(tcph->dest) != sport) continue;
 
      //match
-     printf("match: souce port %d %d\n", ntohs(tcph->source), ntohs(tcph->dest));
+     printf("match: souce, dest port %d, %d\n", ntohs(tcph->source), ntohs(tcph->dest));
+     sprintf(sip, "%d.%d.%d.%d",
+             iphead[12],iphead[13],
+             iphead[14],iphead[15]);
+     sprintf(dip, "%d.%d.%d.%d",
+             iphead[16],iphead[17],
+             iphead[18],iphead[19]);
+     printf("match: souce dest %s %s\n", sip, dip);
 
      printf("Layer-4 protocol %d\n", iph->protocol);
      printf("asksyn %d %d\n", tcph->syn, tcph->ack);
      break;
    }
+   
+   close(read_rawsock);
 
    //send to ask packet
-   send_ackpacket(iph, tcph);
+   send_ackpacket(tcph, sip, dip);
  
 }
 
-int send_ackpacket(struct iphdr *asksyn_iph ,struct tcphdr *asksyn_tcph)
+int send_ackpacket(struct tcphdr *atcph, char *sip, char *dip)
 {        
-        char buffer[4096]="";
-	char vsip[4096]="";
-        int one = 1;
-        const int *val = &one;
-        //raw_socket = socket (PF_INET, SOCK_RAW, IPPROTO_TCP);
-         
-        struct iphdr *iph = (struct iphdr *) buffer;
-        struct tcphdr *tcph = (struct tcphdr *) (buffer + sizeof (struct ip));
-        struct sockaddr_in sin;
+	 char buffer[4096];
+	 int one = 1, ret = 0;
+	 const int *val = &one;
+	 //raw_socket = socket (PF_INET, SOCK_RAW, IPPROTO_TCP);
 
-        if(raw_socket < 0)
-        {
-                perror("socket() error");
-                exit(-1);
-        }
-        else
-                printf("socket()-SOCK_RAW and tcp protocol is OK.\n");
+	 struct iphdr *iph = (struct iphdr *) buffer;
+	 struct tcphdr *tcph = (struct tcphdr *) (buffer + sizeof (struct ip));
+	 struct sockaddr_in sin;
 
-         
-         sin.sin_family = AF_INET;
-         sin.sin_port = asksyn_tcph->source;
-         sin.sin_addr.s_addr = asksyn_iph->saddr;
-         
-         memset (buffer, 0, 4096); /* zero out the buffer */
-         
-         //Fill in the IP Header
-         iph->ihl = 5;
-         iph->version = 4;
-         iph->tos = 0;
-         iph->frag_off = 0x40;
-         iph->ttl = 255;
-         iph->protocol = 6;
-         iph->check = 0;  //Set to 0 before calculating checksum
-         iph->saddr = asksyn_iph->daddr; //Spoof the source ip address
+	if(raw_socket < 0)
+	{
+		perror("socket() error");
+	        exit(-1);
+	}
+	else
+		printf("socket()-SOCK_RAW and tcp protocol is OK.\n");
+
+	 
+	 sin.sin_family = AF_INET;
+	 sin.sin_port = htons(ntohs(atcph->source));
+	 sin.sin_addr.s_addr = inet_addr (sip);
+	 
+	 memset (buffer, 0, 4096); /* zero out the buffer */
+	 
+	 //Fill in the IP Header
+	 iph->ihl = 5;
+	 iph->version = 4;
+	 iph->tos = 0;
+	 iph->tot_len = sizeof (struct ip) + sizeof (struct tcphdr);
+	 iph->id = htonl (54321); //Id of this packet
+	 iph->frag_off = 0x40;
+	 iph->ttl = 255;
+	 iph->protocol = 6;
+	 iph->check = 0;  //Set to 0 before calculating checksum
+	 iph->saddr = inet_addr (dip); //Spoof the source ip address
 	 iph->daddr = sin.sin_addr.s_addr;
+	 
+	 //TCP Header
+	 tcph->source = htons (ntohs(atcph->dest));
+	 tcph->dest = htons (ntohs(atcph->source));
+	 tcph->seq = atcph->seq + 1/*random ()*/;
+	 tcph->ack_seq = 0;
 
-         //TCP Header
-         tcph->source = asksyn_tcph->dest;
-         tcph->dest = asksyn_tcph->source;
-         tcph->seq = 0 /*random ()*/;
-         tcph->ack_seq = 0;
-
-         //TCP flag
-         tcph->doff = 5;
-         tcph->syn = 0;
-         tcph->ack = 1;
-         tcph->window = htons (32767); /* maximum allowed window size */
-         tcph->check = 0;
-         tcph->urg_ptr = 0;
-         //Now the IP checksum
-         iph->check = csum ((unsigned short *) buffer, iph->tot_len >> 1);
-         
-        if (setsockopt (raw_socket, IPPROTO_IP, IP_HDRINCL, val, sizeof (one)) < 0)
-        {
-           printf ("Warning: Cannot set HDRINCL!n");
+ 	 //TCP flag
+	 tcph->doff = 5;
+	 tcph->syn = 0;
+	 tcph->ack = 1;
+	 tcph->window = htons (32767); /* maximum allowed window size */
+	 tcph->check = 0;
+	 tcph->urg_ptr = 0;
+	 //Now the IP checksum
+	 iph->check = csum ((unsigned short *) buffer, iph->tot_len >> 1);
+	 
+	if (setsockopt (raw_socket, IPPROTO_IP, IP_HDRINCL, val, sizeof (one)) < 0)
+	{
+	   printf ("Warning: Cannot set HDRINCL!n");
            return -1;
-         }
-	
-        printf("Target IP: %s port: %d.\n", addr_to_string(&sin,vsip), get_port_number(&sin));
+	 }
 
-         //sendto packet         
-         while (1)
-         {
-          //Send the packet
-          if (sendto (raw_socket, buffer, iph->tot_len, 0, (struct sockaddr *) &sin, sizeof (sin)) < 0)
-          {
-                        perror("sendto() error");
-                        exit(-1);               
+	 //sendto packet	 
+	 while (1)
+	 {
+	  //Send the packet
+	  if (ret = sendto (raw_socket, buffer, iph->tot_len, 0, (struct sockaddr *) &sin, sizeof (sin)) < 0)
+	  {
+			perror("sendto() error");
+			exit(-1);		
           }
-          else
-           break;
-         }
+	  else
+	   break;
+	 }
+	printf("sendto ret = %d\n", ret);
 
-        return 1;
+	return 1;
 }
  
 int main (int argc, char *argv[])
@@ -313,21 +330,22 @@ int main (int argc, char *argv[])
 		exit(-1);
 	}
 
+
 	//sendto B Client for sync packets
 	req = send_syncpacket(argv);
 
 	//sendto STUNT Server
-	int destport= atoi(argv[4]);
-	toSTUNTServer(req, argv[3], destport);
+	int sport= atoi(argv[2]);
+	int dport= atoi(argv[4]);
+
+	toSTUNTServer(req, argv[3], dport, sport);
 
 	//Wait ASK_SYN packet && Send ASK packet
 	waitforasksync(atoi(argv[2]), atoi(argv[4]));
 	
 	//Wait SYN packet for B client
-
 	printf("Connect.\n");
-
-	close(read_rawsock);
+	
 	close(raw_socket);
  	return 0;
 }

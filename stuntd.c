@@ -78,7 +78,7 @@ unsigned short  get_port_number(void *addr)
 }
  
 
-int send_asksynpkt (int seq, struct sockaddr_in* cli_addr, char *spoof_DestIP, int port)
+int send_asksynpkt (int seq, struct sockaddr_in* cli_addr, char *spoof_DestIP, int dport, int sport)
 {
 	 char buffer[4096];
     	 char  vsip[16]="";
@@ -109,7 +109,7 @@ int send_asksynpkt (int seq, struct sockaddr_in* cli_addr, char *spoof_DestIP, i
 
 	 
 	 sin.sin_family = AF_INET;
-	 sin.sin_port = cli_addr->sin_port;
+	 sin.sin_port = htons (sport);
 	 sin.sin_addr.s_addr = cli_addr->sin_addr.s_addr;
 	 
 	 memset (buffer, 0, 4096); //zero out the buffer
@@ -128,8 +128,8 @@ int send_asksynpkt (int seq, struct sockaddr_in* cli_addr, char *spoof_DestIP, i
 	 iph->daddr = sin.sin_addr.s_addr;
 	 
 	 //TCP Header
-	 tcph->source = htons (port);
-	 tcph->dest = sin.sin_port;
+	 tcph->source = htons (dport);
+	 tcph->dest = htons (sport);
 	 tcph->seq = seq;
 	 tcph->ack_seq = 0;
 
@@ -149,7 +149,7 @@ int send_asksynpkt (int seq, struct sockaddr_in* cli_addr, char *spoof_DestIP, i
 	   printf ("Warning: Cannot set HDRINCL!n");
 	 }
 
-	printf("Using:::::Source IP: %s port: %d, Target IP: %s port: %d.\n", spoof_DestIP, port, addr_to_string(cli_addr, vsip), get_port_number(cli_addr));
+	printf("Using:::::Source IP: %s port: %d, Target IP: %s port: %d.\n", spoof_DestIP, dport, addr_to_string(cli_addr, vsip), sport);
 
 	 //sendto packet	 
 	 while (1)
@@ -171,7 +171,7 @@ int send_asksynpkt (int seq, struct sockaddr_in* cli_addr, char *spoof_DestIP, i
 
 void handle_client(int fd, struct sockaddr_in* cli_addr)
 {
-    int req = 0, port = 0;
+    int req = 0, dport = 0, sport = 0;
     long i, ret;
     char *token = NULL;
 
@@ -202,7 +202,10 @@ void handle_client(int fd, struct sockaddr_in* cli_addr)
 			strcpy(dstip, token);
 			break;
 		case 2:
-			port = atoi(token);
+			dport = atoi(token);
+			break;
+		case 3:
+			sport = atoi(token);
 			break;
 	    }
 		
@@ -210,9 +213,9 @@ void handle_client(int fd, struct sockaddr_in* cli_addr)
             token = strtok(NULL, ";");
     }
 
-    printf("spoof_data: seq = %d, ip = %s, port = %d\n", req, dstip, port);
+    printf("spoof_data: seq = %d, destip = %s, destport = %d, sport = %d\n", req, dstip, dport, sport);
 
-    send_asksynpkt(req, cli_addr, dstip, port);
+    send_asksynpkt(req, cli_addr, dstip, dport, sport);
 
     exit(1);
 }
