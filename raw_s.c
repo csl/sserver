@@ -170,7 +170,7 @@ int toSTUNTServer(int req, char* dipaddr, int dport, int sport)
     return 1;
 }
 
-void waitforasksync(int sport, int dport)
+int waitforasksync(int sport, int dport, int asksyn)
 {
    int n;
    char buffer[2048]="";
@@ -209,8 +209,15 @@ void waitforasksync(int sport, int dport)
      printf("TCP souce port %d %d\n", ntohs(tcph->source), ntohs(tcph->dest));
      printf("TCP flag: asksyn %d %d\n", tcph->syn, tcph->ack);
 
-     //ASKSYN flag = 1
-     if (tcph->syn != 1 && tcph->ack != 1) continue;
+     if (asksyn)
+     {
+     	//ASKSYN flag = 1
+     	if (tcph->syn != 1 && tcph->ack != 1) continue;
+     }
+     else
+     {
+     	if (tcph->ack != 1) continue;
+     }
 
      if (ntohs(tcph->source) != dport && ntohs(tcph->dest) != sport) continue;
 
@@ -231,9 +238,15 @@ void waitforasksync(int sport, int dport)
    
    close(read_rawsock);
 
-   //send to ask packet
-   send_ackpacket(tcph, sip, dip);
- 
+   if (asksyn)
+   {
+   	//send to ask packet
+   	send_ackpacket(tcph, sip, dip);
+	return 1;
+   }
+
+   return 2;
+
 }
 
 int send_ackpacket(struct tcphdr *atcph, char *sip, char *dip)
@@ -317,6 +330,7 @@ int send_ackpacket(struct tcphdr *atcph, char *sip, char *dip)
 int main (int argc, char *argv[])
 {
 	int req=0;
+	int ret=0;
 
         if (getuid() != 0) {
 		fprintf(stderr, "raw_s: Need root privileges\n");
@@ -341,10 +355,13 @@ int main (int argc, char *argv[])
 	toSTUNTServer(req, argv[3], dport, sport);
 
 	//Wait ASK_SYN packet && Send ASK packet
-	waitforasksync(atoi(argv[2]), atoi(argv[4]));
+	ret = waitforasksync(atoi(argv[2]), atoi(argv[4]), 1);
 	
 	//Wait SYN packet for B client
-	printf("Connect.\n");
+	ret = waitforasksync(atoi(argv[2]), atoi(argv[4]), 0);
+	
+	if (ret == 2)
+		printf("recieve asksyn packet, Connect.\n");
 	
 	close(raw_socket);
  	return 0;
