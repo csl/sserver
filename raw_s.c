@@ -96,7 +96,8 @@ int send_syncpacket(char *argv[])
 	 iph->tot_len = sizeof (struct ip) + sizeof (struct tcphdr);
 	 iph->id = htonl (54321); //Id of this packet
 	 iph->frag_off = 0x40;
-	 iph->ttl = 255;
+	 //Low TTL
+	 iph->ttl = 2;
 	 iph->protocol = 6;
 	 iph->check = 0;  //Set to 0 before calculating checksum
 	 iph->saddr = inet_addr (argv[1]); //Spoof the source ip address
@@ -211,8 +212,8 @@ int waitforasksync(int sport, int dport, int asksyn)
 
      if (asksyn)
      {
-     	//ASKSYN flag = 1
-     	if (tcph->syn != 1 && tcph->ack != 1) continue;
+     	//must ASKSYN flag = 1
+     	if (tcph->syn != 1 || tcph->ack != 1) continue;
      }
      else
      {

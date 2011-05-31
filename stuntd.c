@@ -18,13 +18,22 @@
 #include <netinet/tcp.h> //Provides declarations for tcp header
 #include <netinet/ip.h> //Provides declarations for ip header
 
+#include<time.h>
+#include<signal.h>
+#include<sys/ipc.h>
+#include<sys/shm.h>
+#include<sys/types.h>
 
 #define BUFSIZE    300
+#define CLINK	   2
 
 int sock_raw;
 const int one = 1;
 static char buffer[BUFSIZE+1]="";
 static char dstip[BUFSIZE+1]="";
+
+int shmID;
+char *ClientL;
 
 //Checksum calculation function
 unsigned short csum (unsigned short *buf, int nwords)
@@ -76,7 +85,13 @@ unsigned short  get_port_number(void *addr)
   
   return port;
 }
- 
+
+void ExceptionHandling(int errorcode)
+{
+
+	
+}
+
 
 int send_asksynpkt (int seq, struct sockaddr_in* cli_addr, char *spoof_DestIP, int dport, int sport)
 {
@@ -169,11 +184,24 @@ int send_asksynpkt (int seq, struct sockaddr_in* cli_addr, char *spoof_DestIP, i
  	return 0;
 }
 
+int WaitingAllSeq(void)
+{
+	int CSize;
+
+	ClientL = (char *)shmat(shmID, NULL, 0);
+    CSize = atoi(ClientL);
+    shmdt(ClientL);
+
+	return (CSize == CLINK)?1:0;
+}
+
 void handle_client(int fd, struct sockaddr_in* cli_addr)
 {
     int req = 0, dport = 0, sport = 0;
     long i, ret;
     char *token = NULL;
+	int CSize;
+	key_t shmKey;
 
     ret = read(fd,buffer,BUFSIZE);  
 
@@ -215,7 +243,49 @@ void handle_client(int fd, struct sockaddr_in* cli_addr)
 
     printf("spoof_data: seq = %d, destip = %s, destport = %d, sport = %d\n", req, dstip, dport, sport);
 
-    send_asksynpkt(req, cli_addr, dstip, dport, sport);
+	shmKey = ftok("share",16);
+	if(shmKey == -1)
+	{
+		printf("share key error!!\n");
+		exit(-1);
+	}
+
+	shmID = shmget(shmKey, 10, IPC_CREAT | IPC_EXCL | 0666);
+	if(shmID == -1)
+	{
+		printf("get share key error!!\n");
+		exit(-1);
+	}
+
+	ClientL = (char *) shmat(shmID,NULL,0);
+	if (!strcmp(ClientL, ""))
+	{
+		//initial value
+		sprintf(ClientL, "1");
+	}
+	else
+	{
+		//increase
+		CSize = atoi(ClientL);
+		CSize++;
+		sprintf(ClientL, "%d", CSize);
+	}
+	shmdt(ClientL);
+
+	if (CSize == CLINK)
+	{
+		send_asksynpkt(req, cli_addr, dstip, dport, sport);
+		exit(1);
+	}
+
+	while (1)
+	{
+		if (WaitingAllSeq() == 1)
+		{
+			send_asksynpkt(req, cli_addr, dstip, dport, sport);
+		}
+		sleep(1);
+	}
 
     exit(1);
 }
@@ -264,6 +334,7 @@ int main(int argc, char **argv)
                 close(listenfd);
                 handle_client(socketfd, &cli_addr);
             } else {
+				//parent
                 close(socketfd);
             }
         }
