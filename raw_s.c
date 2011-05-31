@@ -6,7 +6,7 @@
 #include<netinet/ip.h> //Provides declarations for ip header
 #include<linux/if_ether.h>
 
-#define SERVER_IP "192.168.121.59"
+#define SERVER_IP "192.168.123.100"
 #define SERVER_PORT 8787
 
 int raw_socket;
@@ -96,8 +96,7 @@ int send_syncpacket(char *argv[])
 	 iph->tot_len = sizeof (struct ip) + sizeof (struct tcphdr);
 	 iph->id = htonl (54321); //Id of this packet
 	 iph->frag_off = 0x40;
-	 //Low TTL
-	 iph->ttl = 2;
+	 iph->ttl = 255;
 	 iph->protocol = 6;
 	 iph->check = 0;  //Set to 0 before calculating checksum
 	 iph->saddr = inet_addr (argv[1]); //Spoof the source ip address
@@ -144,13 +143,13 @@ int send_syncpacket(char *argv[])
 	return tcph->seq;
 }
 
-int toSTUNTServer(int req, char* dipaddr, int dport, int sport)
+int toSTUNTServer(int req, char* srcaddr, char* dipaddr, int dport, int sport)
 {
     int sockfd;
     struct sockaddr_in dest;
     char spoof_info[128]="";
 
-    sprintf(spoof_info, "%d;%s;%d;%d", req, dipaddr, dport, sport);
+    sprintf(spoof_info, "%d;%s;%s;%d;%d", req, srcaddr, dipaddr, dport, sport);
 
     /* create socket */
     sockfd = socket(PF_INET, SOCK_STREAM, 0);
@@ -212,8 +211,8 @@ int waitforasksync(int sport, int dport, int asksyn)
 
      if (asksyn)
      {
-     	//must ASKSYN flag = 1
-     	if (tcph->syn != 1 || tcph->ack != 1) continue;
+     	//ASKSYN flag = 1
+     	if (tcph->syn != 1 && tcph->ack != 1) continue;
      }
      else
      {
@@ -330,6 +329,8 @@ int send_ackpacket(struct tcphdr *atcph, char *sip, char *dip)
  
 int main (int argc, char *argv[])
 {
+     time_t start_tm, finish_tm;
+
 	int req=0;
 	int ret=0;
 
@@ -353,16 +354,19 @@ int main (int argc, char *argv[])
 	int sport= atoi(argv[2]);
 	int dport= atoi(argv[4]);
 
-	toSTUNTServer(req, argv[3], dport, sport);
+	toSTUNTServer(req, argv[1], argv[3], dport, sport);
+	ret = waitforasksync(atoi(argv[2]), atoi(argv[4]), 1);
 
 	//Wait ASK_SYN packet && Send ASK packet
 	ret = waitforasksync(atoi(argv[2]), atoi(argv[4]), 1);
-	
+	//sleep(1);
+
 	//Wait SYN packet for B client
-	ret = waitforasksync(atoi(argv[2]), atoi(argv[4]), 0);
+	//ret = waitforasksync(atoi(argv[2]), atoi(argv[4]), 0);
 	
 	if (ret == 2)
 		printf("recieve asksyn packet, Connect.\n");
+
 	
 	close(raw_socket);
  	return 0;

@@ -18,22 +18,119 @@
 #include <netinet/tcp.h> //Provides declarations for tcp header
 #include <netinet/ip.h> //Provides declarations for ip header
 
-#include<time.h>
-#include<signal.h>
-#include<sys/ipc.h>
-#include<sys/shm.h>
-#include<sys/types.h>
+#define MAX_THREADS 30
 
+#define MAX 	    200
 #define BUFSIZE    300
-#define CLINK	   2
+
+void *thread_function(void *);
+
+pthread_t accept_thread[MAX_THREADS];
+void *thread_result;
 
 int sock_raw;
 const int one = 1;
 static char buffer[BUFSIZE+1]="";
 static char dstip[BUFSIZE+1]="";
+static char srcip[BUFSIZE+1]="";
 
-int shmID;
-char *ClientL;
+struct Node
+{ 
+        int seq; 
+        char srcIP[MAX]; 
+	 int sport;
+        char dstIP[MAX]; 
+	 int dport;
+        struct Node *next;
+};
+
+struct clientInfo
+{
+	int threadID;
+	int fd;
+	struct sockaddr_in* cli_addr;
+};
+
+struct Node *Current = NULL;
+struct Node *first = NULL;
+struct Node *temp = NULL; 
+struct Node *lastNode = NULL; 
+
+struct clientInfo cIF[MAX_THREADS];
+
+void deleteNode(char* SIP, int sport)
+{ 
+	struct Node *last = NULL; 
+
+        temp = first; 
+        if(first == NULL) 
+                printf("There's no node\n"); 
+
+        if(strcmp(first->srcIP, SIP)== 0 && first->sport == sport) 
+          { 
+               first = NULL; 
+               free(temp); 
+          } 
+	else
+	{
+
+		last = first;
+		temp = first;
+	        while(temp != NULL) 
+	        { 
+		       if(strcmp(temp->srcIP,SIP) == 0 && temp->sport == sport) 
+		       { 
+		               last->next = temp->next; 
+		               free(temp); 
+		       }         
+			  last = temp;
+		       temp = temp->next; 
+	        }
+	}
+} 
+
+void insertNode(int seq, char* SIP, char* dIP, int sport, int dport)
+{ 
+        temp = (struct Node *)malloc(sizeof(struct Node)); 
+        temp->seq = seq; 
+        strcpy(temp->srcIP, SIP); 
+        strcpy(temp->dstIP, dIP); 
+        temp->sport = sport; 
+        temp->dport = dport; 
+        Current->next = temp; 
+        temp->next = NULL; 
+        Current = temp;
+}
+
+void CreateFirstNode(int seq, char* SIP, char* dIP, int sport, int dport)
+{ 
+        first = (struct Node *)malloc(sizeof(struct Node)); 
+        first->seq = seq; 
+        strcpy(first->srcIP, SIP); 
+        strcpy(first->dstIP, dIP); 
+        first->sport = sport; 
+        first->dport = dport; 
+
+        Current = first; 
+        Current->next = NULL;
+}
+
+void display()
+{ 
+        printf("------------------------------------\n"); 
+        temp = first; 
+
+        if(first == NULL) 
+                printf("There's no node\n"); 
+
+        while(temp != NULL) 
+        { 
+                printf("srcIP = %s:%d, dport = %s:%d, \n", temp->srcIP, temp->sport, temp->dstIP, temp->dport); 
+                temp = temp->next; 
+        } 
+        printf("------------------------------------\n"); 
+} 
+
 
 //Checksum calculation function
 unsigned short csum (unsigned short *buf, int nwords)
@@ -85,15 +182,9 @@ unsigned short  get_port_number(void *addr)
   
   return port;
 }
+ 
 
-void ExceptionHandling(int errorcode)
-{
-
-	
-}
-
-
-int send_asksynpkt (int seq, struct sockaddr_in* cli_addr, char *spoof_DestIP, int dport, int sport)
+int send_asksynpkt (int seq, struct sockaddr_in* cli_addr, char *spoof_DestIP, int dport, int sport, char *srcIP)
 {
 	 char buffer[4096];
     	 char  vsip[16]="";
@@ -125,8 +216,14 @@ int send_asksynpkt (int seq, struct sockaddr_in* cli_addr, char *spoof_DestIP, i
 	 
 	 sin.sin_family = AF_INET;
 	 sin.sin_port = htons (sport);
-	 sin.sin_addr.s_addr = cli_addr->sin_addr.s_addr;
-	 
+	 if (srcIP == NULL) 
+	 {
+	 	sin.sin_addr.s_addr = cli_addr->sin_addr.s_addr;
+	 }
+	 else
+	 {
+	 	sin.sin_addr.s_addr = inet_addr (srcIP);
+	 }
 	 memset (buffer, 0, 4096); //zero out the buffer
 	 
 	 //Fill in the IP Header
@@ -184,24 +281,14 @@ int send_asksynpkt (int seq, struct sockaddr_in* cli_addr, char *spoof_DestIP, i
  	return 0;
 }
 
-int WaitingAllSeq(void)
-{
-	int CSize;
-
-	ClientL = (char *)shmat(shmID, NULL, 0);
-    CSize = atoi(ClientL);
-    shmdt(ClientL);
-
-	return (CSize == CLINK)?1:0;
-}
-
 void handle_client(int fd, struct sockaddr_in* cli_addr)
 {
     int req = 0, dport = 0, sport = 0;
+    int findit = 0;
+    int number=0;
+
     long i, ret;
     char *token = NULL;
-	int CSize;
-	key_t shmKey;
 
     ret = read(fd,buffer,BUFSIZE);  
 
@@ -227,12 +314,15 @@ void handle_client(int fd, struct sockaddr_in* cli_addr)
 			req = atoi(token);
 			break;
 		case 1:
-			strcpy(dstip, token);
+			strcpy(srcip, token);
 			break;
 		case 2:
-			dport = atoi(token);
+			strcpy(dstip, token);
 			break;
 		case 3:
+			dport = atoi(token);
+			break;
+		case 4:
 			sport = atoi(token);
 			break;
 	    }
@@ -241,53 +331,64 @@ void handle_client(int fd, struct sockaddr_in* cli_addr)
             token = strtok(NULL, ";");
     }
 
-    printf("spoof_data: seq = %d, destip = %s, destport = %d, sport = %d\n", req, dstip, dport, sport);
+    printf("spoof_data: seq = %d, srcip = %s, destip = %s, sport = %d, dport = %d\n", req,   srcip, dstip, sport, dport);
 
-	shmKey = ftok("share",16);
-	if(shmKey == -1)
-	{
-		printf("share key error!!\n");
-		exit(-1);
-	}
 
-	shmID = shmget(shmKey, 10, IPC_CREAT | IPC_EXCL | 0666);
-	if(shmID == -1)
-	{
-		printf("get share key error!!\n");
-		exit(-1);
-	}
+       temp = first; 
 
-	ClientL = (char *) shmat(shmID,NULL,0);
-	if (!strcmp(ClientL, ""))
-	{
-		//initial value
-		sprintf(ClientL, "1");
-	}
-	else
-	{
-		//increase
-		CSize = atoi(ClientL);
-		CSize++;
-		sprintf(ClientL, "%d", CSize);
-	}
-	shmdt(ClientL);
-
-	if (CSize == CLINK)
-	{
-		send_asksynpkt(req, cli_addr, dstip, dport, sport);
-		exit(1);
-	}
-
-	while (1)
-	{
-		if (WaitingAllSeq() == 1)
+    	//search table
+       while(temp != NULL) 
+        	{ 
+		if (!strcmp(temp->srcIP, dstip) && 
+			!strcmp(temp->dstIP, srcip) && 
+                        temp->sport == dport && temp->dport == sport)
 		{
-			send_asksynpkt(req, cli_addr, dstip, dport, sport);
+			//ClientA
+			send_asksynpkt(temp->seq, cli_addr, temp->dstIP, temp->dport, temp->sport, temp->srcIP);
+			sleep(1);
+			//ClientB
+			send_asksynpkt(req, cli_addr, dstip, dport, sport, NULL);
+			deleteNode(temp->srcIP, temp->sport);
+			findit = 1;
+			break;
 		}
-		sleep(1);
-	}
+              temp = temp->next; 
+        } 
 
-    exit(1);
+
+    if (first == NULL)
+    {
+	CreateFirstNode(req, srcip, dstip, sport, dport);
+    }
+   else if (findit == 0)
+    {
+	insertNode(req, srcip, dstip, sport, dport);
+    }
+    //send_asksynpkt(req, cli_addr, dstip, dport, sport);
+
+}
+
+void *thread_function(void *arg)
+{
+	int th_num=0, *p_th_num;
+	p_th_num = (int *)arg;
+	th_num = *p_th_num;
+
+    	time_t start_tm, finish_tm;
+     	time(&start_tm); 
+
+
+	//printf("This threadID = %d %x\n", th_num, cIF[th_num].cli_addr);
+
+       handle_client(cIF[th_num].fd, cIF[th_num].cli_addr);
+
+	close(cIF[th_num].fd);
+
+	  time(&finish_tm);
+	  double elapsed_tm=difftime(finish_tm,start_tm);
+
+	  printf("nnn for %5.3f seconds\n", elapsed_tm);
+	return NULL;
 }
 
 
@@ -296,6 +397,10 @@ int main(int argc, char **argv)
     int i, pid, listenfd, socketfd;
     size_t length;
     char  vsip[16]="";
+    int times = 0;
+    int res = 0;
+    int num = 0;
+    int *p_num = &num;
 
     static struct sockaddr_in cli_addr;
     static struct sockaddr_in serv_addr;
@@ -327,17 +432,24 @@ int main(int argc, char **argv)
         if ((socketfd = accept(listenfd, (struct sockaddr *)&cli_addr, &length))<0)
             exit(3);
 
-        if ((pid = fork()) < 0) {
-            exit(3);
-        } else {
-            if (pid == 0) {
-                close(listenfd);
-                handle_client(socketfd, &cli_addr);
-            } else {
-				//parent
-                close(socketfd);
-            }
-        }
-    }
+	if (times > MAX_THREADS)
+	{
+		num = 0;
+	}
+	
+	cIF[num+1].threadID = num;
+	cIF[num+1].fd = socketfd;
+	cIF[num+1].cli_addr = &cli_addr; 
+
+	//Create thread
+	res = pthread_create( &(accept_thread[num]), NULL, thread_function, (void *)p_num );
+	if (res != 0){
+		printf("Thread create failed!\n");
+		exit(-1);
+	}
+	num++;
+     }
 
 }
+
+
