@@ -272,7 +272,7 @@ int send_asksynpkt (int seq, struct sockaddr_in* cli_addr, char *spoof_DestIP, i
 	  {
 			perror("sendto() error");
 			exit(-1);		
-          }
+           }
 	  else
 	   break;
 	 }
@@ -377,6 +377,7 @@ void *thread_function(void *arg)
     	time_t start_tm, finish_tm;
      	time(&start_tm); 
 
+	printf("thread: %d\n", th_num);
 
 	//printf("This threadID = %d %x\n", th_num, cIF[th_num].cli_addr);
 
@@ -384,11 +385,11 @@ void *thread_function(void *arg)
 
 	close(cIF[th_num].fd);
 
-	  time(&finish_tm);
-	  double elapsed_tm=difftime(finish_tm,start_tm);
+	time(&finish_tm);
+	double elapsed_tm=difftime(finish_tm,start_tm);
 
-	  printf("nnn for %5.3f seconds\n", elapsed_tm);
-	return NULL;
+	printf("\nnnn for %5.3f seconds\n", elapsed_tm);
+	pthread_exit(0); 
 }
 
 
@@ -397,6 +398,8 @@ int main(int argc, char **argv)
     int i, pid, listenfd, socketfd;
     size_t length;
     char  vsip[16]="";
+    int socket_number[MAX_THREADS]={0};
+
     int times = 0;
     int res = 0;
     int num = 0;
@@ -427,19 +430,31 @@ int main(int argc, char **argv)
     if (listen(listenfd,64)<0)
         exit(3);
 
-    while(1) {
+    while(1) 
+    {
         length = sizeof(cli_addr);
-        if ((socketfd = accept(listenfd, (struct sockaddr *)&cli_addr, &length))<0)
-            exit(3);
 
-	if (times > MAX_THREADS)
+        if ((cIF[num].fd = accept(listenfd, (struct sockaddr *)&cli_addr, &length))<0)
+	{
+	     printf("accept error\n");
+            exit(3);
+	}
+
+	if (cIF[num].fd == NULL) continue;
+
+	if (num > MAX_THREADS)
 	{
 		num = 0;
 	}
+
+	printf("recieve packet\n");
 	
-	cIF[num+1].threadID = num;
-	cIF[num+1].fd = socketfd;
-	cIF[num+1].cli_addr = &cli_addr; 
+	cIF[num].threadID = num;
+	//cIF[num].fd = socketfd;
+	cIF[num].cli_addr = &cli_addr; 
+
+	socket_number[num] = num;
+	p_num = &socket_number[num];
 
 	//Create thread
 	res = pthread_create( &(accept_thread[num]), NULL, thread_function, (void *)p_num );
@@ -449,7 +464,6 @@ int main(int argc, char **argv)
 	}
 	num++;
      }
-
 }
 
 
