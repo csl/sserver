@@ -413,18 +413,18 @@ int main (int argc, char *argv[])
 		exit(1);
       }
 
-     if(argc != 6)
+     if(argc != 7)
       {
 		printf("- Invalid parameters!!!\n");
-		printf("- Usage: %s <link Connection>  <src hostname/IP> <dst hostname/IP> <dst port> <ServerIP>\n", argv[0]);
+		printf("- Usage: %s <link Connection>  <src hostname/IP> <src port> <dst hostname/IP> <dst port> <ServerIP>\n", argv[0]);
 		exit(-1);
        }
 
      //sendto STUNT Server
-     int sport= ((20001+rand())%65536);
-     int dport= atoi(argv[4]);
+     int sport= atoi(argv[3]);
+     int dport= atoi(argv[5]);
      int times=0;
-     strcpy(SERVERIP, argv[5]);
+     strcpy(SERVERIP, argv[6]);
 
      for (i=0; i<atoi(argv[1]); i++)
        {
@@ -434,8 +434,8 @@ int main (int argc, char *argv[])
 		}
 
 		strcpy(cInfo[num].srcip, argv[2]);
-		strcpy(cInfo[num].dstip, argv[3]);
-		cInfo[num].sport = sport + times + 1;
+		strcpy(cInfo[num].dstip, argv[4]);
+		cInfo[num].sport = sport + i;
 		cInfo[num].dport = dport;
 
 		printf("src: %s:%d\n", cInfo[num].srcip, cInfo[num].sport);
@@ -451,7 +451,6 @@ int main (int argc, char *argv[])
 			exit(-1);
 		}
 		num++;
-		times++;
 	}
 
 	while (1);

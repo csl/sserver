@@ -356,12 +356,14 @@ void handle_client(int fd, struct sockaddr_in* cli_addr)
         } 
 
 
-    if (first == NULL)
+    if (first == NULL && findit != 1)
     {
+    printf("CreateFirst: seq = %d, srcip = %s, destip = %s, sport = %d, dport = %d\n", req,   srcip, dstip, sport, dport);
 	CreateFirstNode(req, srcip, dstip, sport, dport);
     }
-   else if (findit == 0)
+    else if (findit == 0)
     {
+    printf("insert_data: seq = %d, srcip = %s, destip = %s, sport = %d, dport = %d\n", req,   srcip, dstip, sport, dport);
 	insertNode(req, srcip, dstip, sport, dport);
     }
     //send_asksynpkt(req, cli_addr, dstip, dport, sport);
