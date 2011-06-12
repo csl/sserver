@@ -18,21 +18,15 @@
 #include <netinet/tcp.h> //Provides declarations for tcp header
 #include <netinet/ip.h> //Provides declarations for ip header
 
-#define MAX_THREADS 30
+#define MAX_THREADS 2000
 
-#define MAX 	    200
+#define MAX 	    2000
 #define BUFSIZE    300
 
 void *thread_function(void *);
 
 pthread_t accept_thread[MAX_THREADS];
 void *thread_result;
-
-int sock_raw;
-const int one = 1;
-static char buffer[BUFSIZE+1]="";
-static char dstip[BUFSIZE+1]="";
-static char srcip[BUFSIZE+1]="";
 
 struct Node
 { 
@@ -53,27 +47,33 @@ struct clientInfo
 
 struct Node *Current = NULL;
 struct Node *first = NULL;
-struct Node *temp = NULL; 
 struct Node *lastNode = NULL; 
 
 struct clientInfo cIF[MAX_THREADS];
 
+static pthread_mutex_t cs_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t cs1_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t cs2_mutex = PTHREAD_MUTEX_INITIALIZER;
+
 void deleteNode(char* SIP, int sport)
 { 
 	struct Node *last = NULL; 
+	struct Node *temp = NULL; 
 
         temp = first; 
         if(first == NULL) 
+	{
                 printf("There's no node\n"); 
+		return;
+	}
 
         if(strcmp(first->srcIP, SIP)== 0 && first->sport == sport) 
-          { 
+        { 
                first = NULL; 
                free(temp); 
-          } 
+        } 
 	else
 	{
-
 		last = first;
 		temp = first;
 	        while(temp != NULL) 
@@ -82,8 +82,9 @@ void deleteNode(char* SIP, int sport)
 		       { 
 		               last->next = temp->next; 
 		               free(temp); 
+			       break;
 		       }         
-			  last = temp;
+		       last = temp;
 		       temp = temp->next; 
 	        }
 	}
@@ -91,6 +92,8 @@ void deleteNode(char* SIP, int sport)
 
 void insertNode(int seq, char* SIP, char* dIP, int sport, int dport)
 { 
+	struct Node *temp = NULL; 
+
         temp = (struct Node *)malloc(sizeof(struct Node)); 
         temp->seq = seq; 
         strcpy(temp->srcIP, SIP); 
@@ -117,6 +120,7 @@ void CreateFirstNode(int seq, char* SIP, char* dIP, int sport, int dport)
 
 void display()
 { 
+	struct Node *temp = NULL; 
         printf("------------------------------------\n"); 
         temp = first; 
 
@@ -189,9 +193,10 @@ int send_asksynpkt (int seq, struct sockaddr_in* cli_addr, char *spoof_DestIP, i
 	 char buffer[4096];
     	 char  vsip[16]="";
 	 int one = 1;
+	 int sock_raw;
 	 const int *val = &one;
 
-	printf("in send_asksynpkt\n");
+	printf("==========send_asksynpkt============\n");
 
     	//Set Socket Raw
     	if ((sock_raw = socket (PF_INET, SOCK_RAW, IPPROTO_TCP)) == -1) {
@@ -278,6 +283,7 @@ int send_asksynpkt (int seq, struct sockaddr_in* cli_addr, char *spoof_DestIP, i
 	 }
 
 	close(sock_raw);
+	printf("==========send_asksynpkt OK============\n");
  	return 0;
 }
 
@@ -286,6 +292,11 @@ void handle_client(int fd, struct sockaddr_in* cli_addr)
     int req = 0, dport = 0, sport = 0;
     int findit = 0;
     int number=0;
+    const int one = 1;
+    char buffer[BUFSIZE+1]="";
+    char dstip[BUFSIZE+1]="";
+    char srcip[BUFSIZE+1]="";
+    struct Node *temp = NULL; 
 
     long i, ret;
     char *token = NULL;
@@ -343,13 +354,18 @@ void handle_client(int fd, struct sockaddr_in* cli_addr)
 			!strcmp(temp->dstIP, srcip) && 
                         temp->sport == dport && temp->dport == sport)
 		{
+			printf("-----------sending---------------\n");
 			//ClientA
 			send_asksynpkt(temp->seq, cli_addr, temp->dstIP, temp->dport, temp->sport, temp->srcIP);
 			sleep(1);
 			//ClientB
-			send_asksynpkt(req, cli_addr, dstip, dport, sport, NULL);
+			send_asksynpkt(req, cli_addr, dstip, dport, sport, srcip);
+			printf("-----------send OK---------------\n");
+    			pthread_mutex_lock( &cs1_mutex );
 			deleteNode(temp->srcIP, temp->sport);
+    			pthread_mutex_unlock( &cs1_mutex );
 			findit = 1;
+
 			break;
 		}
               temp = temp->next; 
@@ -364,14 +380,21 @@ void handle_client(int fd, struct sockaddr_in* cli_addr)
     else if (findit == 0)
     {
     printf("insert_data: seq = %d, srcip = %s, destip = %s, sport = %d, dport = %d\n", req,   srcip, dstip, sport, dport);
+    pthread_mutex_lock( &cs_mutex );
 	insertNode(req, srcip, dstip, sport, dport);
+    pthread_mutex_unlock( &cs_mutex );
     }
+
+
     //send_asksynpkt(req, cli_addr, dstip, dport, sport);
 
 }
 
 void *thread_function(void *arg)
 {
+
+	pthread_detach(pthread_self());
+
 	int th_num=0, *p_th_num;
 	p_th_num = (int *)arg;
 	th_num = *p_th_num;
@@ -461,9 +484,10 @@ int main(int argc, char **argv)
 	//Create thread
 	res = pthread_create( &(accept_thread[num]), NULL, thread_function, (void *)p_num );
 	if (res != 0){
-		printf("Thread create failed!\n");
+		printf("Thread create failed!, code=%d\n", res);
 		exit(-1);
 	}
+
 	num++;
      }
 }

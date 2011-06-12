@@ -18,6 +18,8 @@
 
 void *connection_link(void *);
 
+int success_link = 0;
+
 pthread_t accept_thread[MAX_THREADS];
 void *thread_result;
 
@@ -236,13 +238,13 @@ int waitforsyncask(int sport, int dport, int asksyn)
      //filter not TCP
      if (*iphead!=0x45 && iph->protocol != 6)  continue;         
      
-     printf("TCP souce port %d %d\n", ntohs(tcph->source), ntohs(tcph->dest));
-     printf("TCP flag: synask %d %d\n", tcph->syn, tcph->ack);
+     //printf("TCP souce port %d %d\n", ntohs(tcph->source), ntohs(tcph->dest));
+     //printf("TCP flag: synask %d %d\n", tcph->syn, tcph->ack);
 
      if (asksyn)
      {
      	//SYNASK flag = 1
-     	if (tcph->syn != 1 || tcph->ack != 1) continue;
+     	if (tcph->syn != 1 && tcph->ack != 1) continue;
      }
      else
      {
@@ -262,7 +264,7 @@ int waitforsyncask(int sport, int dport, int asksyn)
      printf("match: souce dest %s %s\n", sip, dip);
 
      printf("Layer-4 protocol %d\n", iph->protocol);
-     printf("asksyn %d %d\n", tcph->syn, tcph->ack);
+     //printf("asksyn %d %d\n", tcph->syn, tcph->ack);
      break;
    }
    
@@ -367,6 +369,8 @@ void *connection_link(void *arg)
      	int req=0;
      	int ret=0;
 
+	pthread_detach(pthread_self());
+
 	p_th_num = (int *)arg;
 	th_num = *p_th_num;
     	time_t start_tm, finish_tm;
@@ -383,11 +387,15 @@ void *connection_link(void *arg)
 	ret = waitforsyncask(cInfo[th_num].sport, cInfo[th_num].dport, 1);
 	//sleep(1);
 
+	printf("Wait SYN packet for B client");
 	//Wait SYN packet for B client
 	ret = waitforsyncask(cInfo[th_num].sport, cInfo[th_num].dport, 0);
 	
 	if (ret == 2)
-		printf("recieve asksyn packet, Connect...\n");
+	{
+		printf("thread%d recieve asksyn packet, Connect...\n", th_num);
+		success_link++;
+	}
 
 	
 	//close(raw_socket[th_num]);
@@ -395,7 +403,7 @@ void *connection_link(void *arg)
 	time(&finish_tm);
 	elapsed_tm=difftime(finish_tm,start_tm);
 
-	printf("Link %d for %5.3f seconds\n", th_num, elapsed_tm);
+	printf("Link %d for %5.3f seconds\n\n\n", th_num, elapsed_tm);
 	pthread_exit(0);
 }
 
@@ -423,7 +431,6 @@ int main (int argc, char *argv[])
      //sendto STUNT Server
      int sport= atoi(argv[3]);
      int dport= atoi(argv[5]);
-     int times=0;
      strcpy(SERVERIP, argv[6]);
 
      for (i=0; i<atoi(argv[1]); i++)
@@ -436,14 +443,13 @@ int main (int argc, char *argv[])
 		strcpy(cInfo[num].srcip, argv[2]);
 		strcpy(cInfo[num].dstip, argv[4]);
 		cInfo[num].sport = sport + i;
-		cInfo[num].dport = dport;
+		cInfo[num].dport = dport + i;
 
 		printf("src: %s:%d\n", cInfo[num].srcip, cInfo[num].sport);
 		printf("dst: %s:%d\n", cInfo[num].dstip, cInfo[num].dport);
 
 		socket_number[i] = num;
 		p_num = &socket_number[i];
-
 		//Create thread
 		res = pthread_create( &(accept_thread[num]), NULL, connection_link, (void *)p_num );
 		if (res != 0){
@@ -453,7 +459,12 @@ int main (int argc, char *argv[])
 		num++;
 	}
 
-	while (1);
+	while (1)
+	{
+		if (success_link == atoi(argv[1])) break;
+		printf("success %d\n", success_link);
+	}
 
+	printf("TCP all connect\n");
  	return 0;
 }
