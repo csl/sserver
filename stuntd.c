@@ -23,6 +23,9 @@
 #define MAX 	    2000
 #define BUFSIZE    300
 
+int timeout = 30 * 100000;  //30 sec
+int count=0;
+
 void *thread_function(void *);
 
 pthread_t accept_thread[MAX_THREADS];
@@ -89,6 +92,29 @@ void deleteNode(char* SIP, int sport)
 	        }
 	}
 } 
+
+void ExceptionHandling()
+{
+	printf("ExceptionHandling\n");
+	//delete pair of data
+	pthread_mutex_lock( &cs2_mutex );
+
+	struct Node *temp = first; 
+
+        if(first == NULL) 
+	{
+       		printf("There's no node\n"); 
+		return;
+	}
+	else
+	{
+		//TimeOUT: Clear all
+		Current = NULL;
+		first = NULL;
+		lastNode = NULL;
+	}
+	pthread_mutex_unlock( &cs2_mutex );
+}
 
 void insertNode(int seq, char* SIP, char* dIP, int sport, int dport)
 { 
@@ -458,6 +484,14 @@ int main(int argc, char **argv)
     while(1) 
     {
         length = sizeof(cli_addr);
+
+	//expection handler
+	count++;
+	if (count > timeout)
+	{
+			ExceptionHandling();
+			count = 0;
+	}
 
         if ((cIF[num].fd = accept(listenfd, (struct sockaddr *)&cli_addr, &length))<0)
 	{
