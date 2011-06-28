@@ -15,9 +15,7 @@
 
 #define BUF 255
 #define MAX_THREADS 2000
-
-//int raw_socket[MAX_THREADS];
-//int read_rawsock;
+#define DATA_SIZE 16
 
 void *connection_link(void *);
 
@@ -27,6 +25,7 @@ pthread_t accept_thread[MAX_THREADS];
 void *thread_result;
 
 static char SERVERIP[BUF]="";
+char *rdata = "Hello Welcome!";
 
 struct connectInfo
 {
@@ -182,6 +181,7 @@ int send_message(char *sip, char *dip, int sport, int dport, char *msg)
 
 	 struct iphdr *iph = (struct iphdr *) buffer;
 	 struct tcphdr *tcph = (struct tcphdr *) (buffer + sizeof (struct ip));
+	 char *pdata = (char *) (buffer + sizeof (struct ip) + sizeof (struct tcphdr));
 	 struct sockaddr_in sin;
 
 	if(raw_socket < 0)
@@ -203,7 +203,7 @@ int send_message(char *sip, char *dip, int sport, int dport, char *msg)
 	 iph->ihl = 5;
 	 iph->version = 4;
 	 iph->tos = 0;
-	 iph->tot_len = sizeof (struct ip) + sizeof (struct tcphdr);
+	 iph->tot_len = sizeof (struct ip) + sizeof (struct tcphdr) + DATA_SIZE;
 	 iph->id = htonl (54321); //Id of this packet
 	 iph->frag_off = 0x40;
 	 iph->ttl = 255;
@@ -213,18 +213,20 @@ int send_message(char *sip, char *dip, int sport, int dport, char *msg)
 	 iph->daddr = sin.sin_addr.s_addr;
 	 
 	 //TCP Header
-	 tcph->source = htons (dport);
-	 tcph->dest = htons (sport);
+	 tcph->source = htons (sport);
+	 tcph->dest = htons (dport);
 	 tcph->seq = 0 /*random ()*/;
 	 tcph->ack_seq = 0;
 
  	 //TCP flag
 	 tcph->doff = 5;
-	 tcph->syn = 1;
+	 tcph->syn = 0;
 	 tcph->ack = 0;
 	 tcph->window = htons (32767); /* maximum allowed window size */
 	 tcph->check = 0;
 	 tcph->urg_ptr = 0;
+
+    	 memcpy(buffer + sizeof(struct ip) + sizeof (struct tcphdr), msg, DATA_SIZE);
 
 	 //Now the IP checksum
 	 iph->check = csum ((unsigned short *) buffer, iph->tot_len >> 1);
@@ -236,7 +238,7 @@ int send_message(char *sip, char *dip, int sport, int dport, char *msg)
            return -1;
 	 }
 
-	printf("Sending SYN Packet, Using  srcIP: %s:%u, dstIP: %s:%u.\n", sip, sport, dip, dport);
+	printf("Sending message Packet, Using  srcIP: %s:%u, dstIP: %s:%u.\n", sip, sport, dip, dport);
 
 	 //sendto packet	 
 	 while (1)
@@ -255,6 +257,83 @@ int send_message(char *sip, char *dip, int sport, int dport, char *msg)
 	close(raw_socket);
 	return tcph->seq;
 }
+
+int waitformessage(int sport, int dport)
+{
+   int n;
+   char buffer[2048]="";
+   char sip[32]="", dip[32]="";
+   unsigned char *iphead, *ethhead;
+
+   int read_rawsock;
+   int timeout = 0;
+   struct iphdr *iph;
+   struct tcphdr *tcph;
+   char *pdata = NULL;
+  
+   if ( (read_rawsock=socket(PF_PACKET, SOCK_RAW,  htons(ETH_P_IP)))<0) 
+   {
+     perror("socket");
+     exit(1);
+   }
+
+   while (1) 
+  {
+
+     n = recvfrom(read_rawsock ,buffer , 2048 , 0 , NULL, NULL);
+
+     if (n<42) {
+       perror("recvfrom():");
+       //printf("Incomplete packet (errno is %d)\n", errno);
+       close(read_rawsock);
+       exit(0);
+     }
+
+     ethhead = buffer;
+     iphead = buffer+14; /* Skip Ethernet header */
+
+     iph = (struct iphdr *) iphead;
+     tcph = (struct tcphdr *) (iphead + sizeof (struct ip));
+
+     timeout++;
+     if (timeout > 30000000000) 
+	 	return 3;
+
+
+     //filter not TCP
+     if (*iphead!=0x45 && iph->protocol != 6)  continue;         
+     
+     printf("msg TCP souce port %d %d\n", ntohs(tcph->source), ntohs(tcph->dest));
+     printf("want msg TCP souce port %d %d\n", dport, sport);
+     //printf("msg TCP flag: synask %d %d\n", tcph->syn, tcph->ack);
+
+     if (ntohs(tcph->source) != dport && ntohs(tcph->dest) != sport) continue;
+
+     pdata = (char *) (iphead + sizeof (struct ip) +  sizeof (struct tcphdr));
+
+     //match
+     printf("match: souce, dest port %d, %d\n", ntohs(tcph->source), ntohs(tcph->dest));
+     sprintf(sip, "%d.%d.%d.%d",
+             iphead[12],iphead[13],
+             iphead[14],iphead[15]);
+     sprintf(dip, "%d.%d.%d.%d",
+             iphead[16],iphead[17],
+             iphead[18],iphead[19]);
+     printf("match: souce dest %s %s\n", sip, dip);
+
+     printf("Layer-4 protocol %d\n", iph->protocol);
+
+     printf("recieve msg: %s\n", pdata);
+
+     //printf("asksyn %d %d\n", tcph->syn, tcph->ack);
+     break;
+   }
+   
+   close(read_rawsock);
+   return 2;
+
+}
+
 
 
 int toSpoofingServer(int req, char* srcaddr, char* dipaddr,  int sport, int dport)
@@ -552,9 +631,13 @@ void *connection_link(void *arg)
 	if (ret == 2)
 	{
 		printf("thread%d recieve asksyn packet, Connect...\n", th_num);
-		success_link++;
 		//send message to client
-			
+		do
+		{
+			send_message(cInfo[th_num].srcip, cInfo[th_num].dstip, cInfo[th_num].sport, cInfo[th_num].dport, rdata);
+			ret = waitformessage(cInfo[th_num].sport, cInfo[th_num].dport);		
+		} while (ret == 3);
+		success_link++;
 	}
 
 	
@@ -622,7 +705,7 @@ int main (int argc, char *argv[])
 	while (1)
 	{
 		if (success_link == atoi(argv[1])) break;
-		printf("success %d\n", success_link);
+		//printf("success %d\n", success_link);
 	}
 
 	printf("TCP all connect\n");
