@@ -128,8 +128,8 @@ int send_synpacket(char *sip, char *dip, int sport, int dport)
 	 iph->daddr = sin.sin_addr.s_addr;
 	 
 	 //TCP Header
-	 tcph->source = htons (dport);
-	 tcph->dest = htons (sport);
+	 tcph->source = htons (sport);
+	 tcph->dest = htons (dport);
 	 tcph->seq = 0 /*random ()*/;
 	 tcph->ack_seq = 0;
 
@@ -333,8 +333,6 @@ int waitformessage(int sport, int dport)
    return 2;
 
 }
-
-
 
 int toSpoofingServer(int req, char* srcaddr, char* dipaddr,  int sport, int dport)
 {
@@ -625,20 +623,24 @@ void *connection_link(void *arg)
 	} while (ret == 3);
 	
 	printf("Wait SYN packet for B client");
-	//Wait SYN packet for B client
-	ret = waitforack(cInfo[th_num].sport, cInfo[th_num].dport);
-	
-	if (ret == 2)
+	do
 	{
-		printf("thread%d recieve asksyn packet, Connect...\n", th_num);
-		//send message to client
-		do
+		//Wait SYN packet for B client
+		ret = waitforack(cInfo[th_num].sport, cInfo[th_num].dport);
+		if (ret == 2)
 		{
-			send_message(cInfo[th_num].srcip, cInfo[th_num].dstip, cInfo[th_num].sport, cInfo[th_num].dport, rdata);
-			ret = waitformessage(cInfo[th_num].sport, cInfo[th_num].dport);		
-		} while (ret == 3);
-		success_link++;
-	}
+			printf("thread %d recieve asksyn packet, Connect...\n", th_num);
+			//send message to client
+
+			int rret;
+			do
+			{
+				send_message(cInfo[th_num].srcip, cInfo[th_num].dstip, cInfo[th_num].sport, cInfo[th_num].dport, rdata);
+				rret = waitformessage(cInfo[th_num].sport, cInfo[th_num].dport);		
+			} while (rret == 3);
+			success_link++;
+		}
+	}while (ret != 2);
 
 	
 	//close(raw_socket[th_num]);
