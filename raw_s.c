@@ -1,6 +1,3 @@
-/*
- Raw Sockets with LINUX
-*/
 #include<stdio.h>
 #include<netinet/tcp.h> //Provides declarations for tcp header
 #include<netinet/ip.h> //Provides declarations for ip header
