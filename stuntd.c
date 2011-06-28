@@ -214,7 +214,7 @@ unsigned short  get_port_number(void *addr)
 }
  
 
-int send_asksynpkt (int seq, struct sockaddr_in* cli_addr, char *spoof_DestIP, int dport, int sport, char *srcIP)
+int send_synackpacket(int seq, struct sockaddr_in* cli_addr, char *spoof_DestIP, int dport, int sport, char *srcIP)
 {
 	 char buffer[4096];
     	 char  vsip[16]="";
@@ -382,10 +382,10 @@ void handle_client(int fd, struct sockaddr_in* cli_addr)
 		{
 			printf("-----------sending---------------\n");
 			//ClientA
-			send_asksynpkt(temp->seq, cli_addr, temp->dstIP, temp->dport, temp->sport, temp->srcIP);
+			send_synackpacket(temp->seq, cli_addr, temp->dstIP, temp->dport, temp->sport, temp->srcIP);
 			sleep(1);
 			//ClientB
-			send_asksynpkt(req, cli_addr, dstip, dport, sport, srcip);
+			send_synackpacket(req, cli_addr, dstip, dport, sport, srcip);
 			printf("-----------send OK---------------\n");
     			pthread_mutex_lock( &cs1_mutex );
 			deleteNode(temp->srcIP, temp->sport);
@@ -432,7 +432,7 @@ void *thread_function(void *arg)
 
 	//printf("This threadID = %d %x\n", th_num, cIF[th_num].cli_addr);
 
-       handle_client(cIF[th_num].fd, cIF[th_num].cli_addr);
+    handle_client(cIF[th_num].fd, cIF[th_num].cli_addr);
 
 	close(cIF[th_num].fd);
 

@@ -88,7 +88,7 @@ unsigned short csum (unsigned short *buf, int nwords)
 	 return ~sum;
 }
 
-int send_syncpacket(char *sip, char *dip, int sport, int dport)
+int send_synpacket(char *sip, char *dip, int sport, int dport)
 {
 	 char buffer[4096];
 	 int one = 1, ret = 0;
@@ -615,7 +615,7 @@ void *connection_link(void *arg)
 	do
 	{
 		//sendto B Client for sync packets
-		req = send_syncpacket(cInfo[th_num].srcip, cInfo[th_num].dstip, cInfo[th_num].sport, cInfo[th_num].dport);
+		req = send_synpacket(cInfo[th_num].srcip, cInfo[th_num].dstip, cInfo[th_num].sport, cInfo[th_num].dport);
 
 		toSpoofingServer(req, cInfo[th_num].srcip, cInfo[th_num].dstip, cInfo[th_num].sport, cInfo[th_num].dport);
 
